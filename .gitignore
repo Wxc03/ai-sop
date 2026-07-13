@@ -1,0 +1,45 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.assets.json
+
+# Rider / IntelliJ
+.idea/
+
+# VS Code
+.vscode/
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# Logs (运行时由 NLog 写到 %AppData%,不应出现在仓库)
+logs/
+*.log
+
+# Mac/Linux junk
+.DS_Store
+Thumbs.db
+
+# 测试装配语料库放 samples/,大文件请用 Git LFS 或外部存储
+samples/large/
+
+# Claude Code workspace
+.claude/
+
+# Script outputs
+scripts/smoke-output.txt
+scripts/smoke-output.txt.err

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  测试项目 — 走 legacy csproj + MSTest 3 (现代 MSTest,原生支持 .NET FW 4.8)。
+  不走 xUnit 是因为 xUnit 在 .NET FW 4.8 上要额外装 dotnet-xunit-runner 之类的,装包更复杂。
+  走 hand-rolled mock,不用 Moq — 6 个 I*Service 接口签名都很轻,自己写更直接。
+  测试运行:VS Test Explorer (首选),或 vstest.console.exe (CI)。
+-->
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{A9B9C9D9-E5F6-4789-AB01-23456789CDEF}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>SwSopAddin.Tests</RootNamespace>
+    <AssemblyName>SwSopAddin.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <LangVersion>9.0</LangVersion>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <!-- 测试项目不注册 COM,这里关掉让 build 干净 -->
+    <RegisterForComInterop>false</RegisterForComInterop>
+    <!-- 跑测试时用 Allocated (Debug) 模式,不要 Optimize,匹配 .NET FW 4.8 习惯 -->
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="mscorlib" />
+    <!-- MSTest 3.x 走 PackageReference,TestFramework + TestAdapter 一起装 -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MockServices 里方法签名用到 SW interop 类型(AssemblyDoc/DrawingDoc/View/ISldWorks/BomTableAnnotation)—
+         测试项目只引用 interop 类型,不会真的调 COM。
+         Private=true 让 MSBuild 把 SW interop DLL 拷到 test bin 目录,运行时 vstest 能找到。
+         (Adapter 项目用 Private=false 是因为 Host 已经拷了;测试项目独立,必须自己拷。) -->
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest.TestFramework" Version="3.6.4" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.6.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SwSopAddin.Infrastructure\SwSopAddin.Infrastructure.csproj">
+      <Project>{A2B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Infrastructure</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Adapter\SwSopAddin.Adapter.csproj">
+      <Project>{E1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Adapter</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Orchestration\SwSopAddin.Orchestration.csproj">
+      <Project>{C1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Orchestration</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Services\SwSopAddin.Services.csproj">
+      <Project>{D1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Services</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Layout\SwSopAddin.Layout.csproj">
+      <Project>{F1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Layout</Name>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Mocks\MockServices.cs" />
+    <Compile Include="SopWorkflowTests.cs" />
+    <Compile Include="ExplodeServiceTests.cs" />
+    <Compile Include="AiAdvisorOptionsTests.cs" />
+    <Compile Include="ComputeChangeSetTests.cs" />
+    <Compile Include="ApplyRebuildTests.cs" />
+    <Compile Include="RunStepTests.cs" />
+    <Compile Include="ParseM3ResponseTests.cs" />
+    <Compile Include="SopLayoutPlannerTests.cs" />
+    <Compile Include="ExplodeLayoutPlannerTests.cs" />
+    <Compile Include="ExplodeServiceSmartHybridTests.cs" />
+    <Compile Include="SwLayoutApiSmokeTests.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

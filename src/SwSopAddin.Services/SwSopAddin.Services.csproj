@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{D1B2C3D4-E5F6-4789-AB01-23456789CDEF}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>SwSopAddin.Services</RootNamespace>
+    <AssemblyName>SwSopAddin.Services</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <LangVersion>9.0</LangVersion>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="mscorlib" />
+    <!-- M7 AI 评估需要 HttpClient -->
+    <Reference Include="System.Net.Http" />
+    <!-- M7 AI 评估 POC 1 截图需要 System.Drawing (Bitmap/Graphics) -->
+    <Reference Include="System.Drawing" />
+    <!-- Services 调 SW API 的方法签名需要 SW interop,但实际 COM 调用由 Adapter 封装 -->
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NLog" Version="5.3.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SwSopAddin.Infrastructure\SwSopAddin.Infrastructure.csproj">
+      <Project>{A2B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Infrastructure</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Adapter\SwSopAddin.Adapter.csproj">
+      <Project>{E1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Adapter</Name>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="IExplodeService.cs" />
+    <Compile Include="ExplodeService.cs" />
+    <Compile Include="IDrawingService.cs" />
+    <Compile Include="DrawingService.cs" />
+    <Compile Include="IViewService.cs" />
+    <Compile Include="ViewService.cs" />
+    <Compile Include="IBalloonService.cs" />
+    <Compile Include="BalloonService.cs" />
+    <Compile Include="IBomService.cs" />
+    <Compile Include="BomService.cs" />
+    <Compile Include="IExplodeStepEditor.cs" />
+    <Compile Include="AiExplodeAdvisor.cs" />
+    <Compile Include="ExplodeLayout.cs" />
+    <Compile Include="ExplodeLayoutPlanner.cs" />
+    <Compile Include="IExplodeApplier.cs" />
+    <Compile Include="SwDirectionalExplodeApplier.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  老式(传统)C# .NET Framework 4.8 类库工程。
+  选择老式的原因:不依赖 .NET (Core) SDK 解析器,仅用 .NET FW MSBuild 即可 build,
+  适合 VS 默认安装(没装 ManagedDesktop 工作负载时也能编译)。
+  Host 项目无 UI,不需要 WinForms 设计器,所以老式很合适。
+-->
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{A1B2C3D4-E5F6-4789-AB01-23456789CDEF}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>SwSopAddin.Host</RootNamespace>
+    <AssemblyName>SwSopAddin.Host</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <LangVersion>9.0</LangVersion>
+    <!-- 手动跑 Register.bat 注册;不要 VS 自动 regasm(那需要管理员启 VS) -->
+    <RegisterForComInterop>false</RegisterForComInterop>
+    <!-- 启用 PackageReference,让 NuGet 在本项目里解析包(传递性 + 直接 PackageReference 都需要) -->
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BCL 基础引用 -->
+    <Reference Include="System" />
+    <Reference Include="mscorlib" />
+    <!-- W1.3.c 起 OnConfig 要弹 WinForms ConfigForm,需要 NativeWindow + DialogResult -->
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+
+    <!--
+      SolidWorks 2024 Interop DLL — 路径硬编码到当前机器的 SW 安装位置。
+      换机器请改下面三个 HintPath。
+      Private=true:把 SW DLL 拷贝到 bin\Debug\,RegAsm 才能在注册时解析依赖。
+      SW 运行时也用同一份,因为是从 SW 自己 redist 目录拷的,版本严格一致,无冲突。
+    -->
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>D:\SW\SOLIDWORKS\api\redist\SolidWorks.Interop.swpublished.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="SwSopAddinPlugin.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 显式声明,因为 legacy csproj 间的传递 PackageReference 不自动生效 -->
+    <PackageReference Include="NLog" Version="5.3.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 项目引用 — Infrastructure / UI / Adapter / Orchestration 都会把它们和它们的依赖拷到 Host 的 bin\Debug -->
+    <ProjectReference Include="..\SwSopAddin.Infrastructure\SwSopAddin.Infrastructure.csproj">
+      <Project>{A2B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Infrastructure</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.UI\SwSopAddin.UI.csproj">
+      <Project>{B1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.UI</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Adapter\SwSopAddin.Adapter.csproj">
+      <Project>{E1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Adapter</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SwSopAddin.Orchestration\SwSopAddin.Orchestration.csproj">
+      <Project>{C1B2C3D4-E5F6-4789-AB01-23456789CDEF}</Project>
+      <Name>SwSopAddin.Orchestration</Name>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
