@@ -193,6 +193,12 @@ namespace SwSopAddin.Infrastructure
         public int MaxRounds { get; set; } = 3;
 
         /// <summary>
+        /// AI 重建路径会先删除旧 explode step，再调用 COM 重建。不同装配体上重建尚不可靠，
+        /// 默认只保留评估结果，禁止它修改模型；验证完成后可在配置中显式开启。
+        /// </summary>
+        public bool ApplyChanges { get; set; } = false;
+
+        /// <summary>
         /// 实际用的 API key — 优先读 ANTHROPIC_API_KEY 环境变量,fallback 到明文 ApiKey。
         /// W6+:明文 ApiKey 即将废弃,留作本地开发 / 旧配置兼容。
         /// 调用方统一走 EffectiveApiKey,不要直接读 ApiKey。

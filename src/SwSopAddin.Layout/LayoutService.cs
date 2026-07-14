@@ -141,7 +141,18 @@ namespace SwSopAddin.Layout
                 double[] curScaleArr = isoView.ScaleRatio as double[];
                 double curScale = (curScaleArr != null && curScaleArr.Length >= 2 && curScaleArr[1] != 0)
                     ? curScaleArr[0] / curScaleArr[1] : 1.0;
-                double newScale = curScale * plan.IsoScaleFactor;
+
+                // SW 偶尔在刚插入的 drawing view 上返回 [0,n] 或极小比例。继续相乘
+                // 会把已很小的视图写成 0，导出的图纸只剩集中在一点的球标。
+                const double minimumUsableScale = 1e-4;
+                bool invalidScale = double.IsNaN(curScale) || double.IsInfinity(curScale) || curScale < minimumUsableScale;
+                if (invalidScale)
+                {
+                    Log.Warn("ApplyIsoPlacement: view '{0}' 返回无效 ScaleRatio={1}; 使用 planner 比例 {2:F4} 作为绝对值",
+                        isoView.Name, curScale, plan.IsoScaleFactor);
+                    curScale = 1.0;
+                }
+                double newScale = invalidScale ? plan.IsoScaleFactor : curScale * plan.IsoScaleFactor;
 
                 isoView.ScaleRatio = new double[] { newScale, 1.0 };
 

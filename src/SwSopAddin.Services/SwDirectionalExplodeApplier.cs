@@ -185,11 +185,14 @@ namespace SwSopAddin.Services
                         string.Join("/", Candidates[bestIdx].Names), comp.Name2, _asmTitle ?? "(null)");
                 }
 
-                ExplodeStep step = (ExplodeStep)_cfg.IAddExplodeStep(distanceMeters * 1000.0, reverseDir, false, false);
+                // IAddExplodeStep 的 ExplDist 采用 SolidWorks 标准长度单位:米。
+                // distanceMeters 已是 ExplodeLayoutPlanner 输出的米，不能再转成毫米；此前
+                // 79.7 mm 会被解释成 79.7 m，组件被推到视窗外，看上去像“消失”。
+                ExplodeStep step = (ExplodeStep)_cfg.IAddExplodeStep(distanceMeters, reverseDir, false, false);
                 if (step == null)
                 {
                     Log.Warn("ApplyPlacement: IAddExplodeStep 返 null: {0}", comp.Name2);
-                    DiagnoseWithAddExplodeStep2(comp, distanceMeters * 1000.0, bestIdx, reverseDir);
+                    DiagnoseWithAddExplodeStep2(comp, distanceMeters, bestIdx, reverseDir);
                     return false;
                 }
 
@@ -214,13 +217,13 @@ namespace SwSopAddin.Services
         /// 注意:若 AddExplodeStep2 意外成功,会在模型里真的留下一个未被 processed/failed 统计到的
         /// ExplodeStep(诊断调用本身有副作用)—— 这种情况下日志会明确标出,便于识别。
         /// </summary>
-        private void DiagnoseWithAddExplodeStep2(IComponent2 comp, double explDistMm, int dirIndex, bool reverseDir)
+        private void DiagnoseWithAddExplodeStep2(IComponent2 comp, double explDistMeters, int dirIndex, bool reverseDir)
         {
             try
             {
                 int error;
                 object stepObj = _cfg.AddExplodeStep2(
-                    explDistMm,       // ExplDist
+                    explDistMeters,   // ExplDist (meters)
                     dirIndex,         // ExplDirIndex
                     reverseDir,       // ReverseDir
                     0.0,              // ExplAng(纯平移,不旋转)

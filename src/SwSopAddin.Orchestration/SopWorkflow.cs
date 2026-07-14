@@ -102,13 +102,12 @@ namespace SwSopAddin.Orchestration
                     View isoView = RunStep3_View(sw, drw, asm, config, result);
                     if (isoView != null) rb.Track(() => SafeReleaseView(isoView));
 
-                    // Part B(多 sheet 架构就绪化):RunMvp 路径一次性收集 isoView + 全部 movable view,
-                    // Step 4/5/6 共用同一个 ctx,不再各自重复调 TryGetFirstView/CollectMovableViews。
-                    // RunStep(单步调试模式)没有跨步状态,继续用各 case 独立的重新推导逻辑,不受影响。
+                    // 单页 SOP 的唯一业务视图就是 Step 3 创建的爆炸等轴测。不要重新枚举 drawing
+                    // 内部的投影视图/占位视图，否则旧布局器会把它们与 iso 一起缩放、居中。
                     var ctx = new DrawingViewContext
                     {
                         IsoView = isoView,
-                        AllViews = CollectMovableViews(drw),
+                        AllViews = isoView != null ? new[] { isoView } : new View[0],
                     };
 
                     // ---------- Step 4:球标 ----------
@@ -522,6 +521,15 @@ namespace SwSopAddin.Orchestration
                 if (views.Length == 0)
                 {
                     Log.Info("Step 6 跳过:ctx 没有 model view");
+                    return;
+                }
+                if (views.Length == 1 && ctx?.IsoView != null && ReferenceEquals(views[0], ctx.IsoView))
+                {
+                    // Step 3 已用 SopLayoutPlanner 完成 iso 的缩放与定位。旧 W5 布局器会再次
+                    // 改写 Position，且不理解标题栏/BOM 禁区，不能再参与单视图 SOP 输出。
+                    result.LayoutApplied = true;
+                    result.LayoutNotes = "单一爆炸等轴测已在 Step 3 定位，跳过旧 Step 6 二次布局";
+                    Log.Info("Step 6 跳过: 单一爆炸等轴测已在 Step 3 完成布局");
                     return;
                 }
                 Log.Info("Step 6:收集到 {0} 个 movable view(layout 参与)", views.Length);

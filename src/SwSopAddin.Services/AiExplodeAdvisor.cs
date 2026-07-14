@@ -194,7 +194,14 @@ namespace SwSopAddin.Services
                     break;
                 }
 
-                // 3) delta 对比 + 回写
+                // 3) delta 对比。AI 重建在真实装配上可能删掉旧 step 后无法补回，
+                // 因而默认仅记录建议；只有用户显式开启 ApplyChanges 才允许改模型。
+                if (!_opts.ApplyChanges)
+                {
+                    Log.Warn("AI 第 {0} 轮返回 {1} 个建议；ApplyChanges=false，已保留原爆炸步骤且不执行重建",
+                        round, aiResp.Steps.Count);
+                    break;
+                }
                 int changed = ApplyDelta(asm, currentSteps, aiResp.Steps);
                 Log.Info("第 {0} 轮: 改了 {1} 个 step", round, changed);
                 result.TotalStepChanges += changed;

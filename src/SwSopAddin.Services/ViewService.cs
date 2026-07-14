@@ -191,34 +191,22 @@ namespace SwSopAddin.Services
                     Log.Warn(ex, "P7 异常");
                 }
             }
-            // W6-fix 批 1:不管 P6 成功与否,都额外调 P7 加 front/top/right 视图
-            // (P6 创 iso view,P7 加 3 张正交,共 4 张视图,像真正 SOP 那样)
-            try
-            {
-                bool ok7b = drw.Create1stAngleViews2(modelName);
-                Log.Info("P7b(批 1:加 3 正交视图) 返 {0}", ok7b);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn(ex, "P7b 异常");
-            }
-            // W6-fix 批 2:P7b 会重置 asm 状态,这里再 ShowExploded2 一次,否则 M5 球标 0
-            // W7+:用前面算好的 preExplodeName(同一 view 名,保证 P7b 前后一致)
+            // SOP 单页只需要一个爆炸等轴测。过去即使 P6 已成功，仍强制调用
+            // Create1stAngleViews2 添加三张正交视图；它们既不用于球标/BOM，又会被旧 Step 6
+            // 当作可移动视图并覆盖等轴测的位置。P7 只保留为所有单视图 API 都失败时的兜底。
+            // 这里仍重申爆炸显示态，保证 P7 fallback 或 API 状态切换后插入的 view 引用正确状态。
             if (!string.IsNullOrEmpty(preExplodeName))
             {
                 try
                 {
                     asm.ShowExploded2(true, preExplodeName);
-                    Log.Info("P7b 后再 ShowExploded2: '{0}'", preExplodeName);
+                    Log.Info("View 创建后确认 ShowExploded2: '{0}'", preExplodeName);
                 }
                 catch (Exception ex)
                 {
-                    Log.Warn(ex, "P7b 后 ShowExploded2 失败");
+                    Log.Warn(ex, "View 创建后 ShowExploded2 失败");
                 }
             }
-            // W6-fix 批 3:跳过 — P7b 后 GetViews() 返 0 个 view(SW 视图未初始化)
-            // 现在只给第一个 view (P6 创的 iso) 设 SHADED,后面 P7b 创的 3 张仍是 wireframe
-            // (不影响功能,只是少部分视图是黑白的)
             if (view == null)
             {
                 // P8:Create3rdAngleViews2 — 备选(美标三视图)

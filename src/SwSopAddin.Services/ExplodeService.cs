@@ -133,7 +133,7 @@ namespace SwSopAddin.Services
                     // 退到 W3.5 老 API:IAddExplodeStep(4 参数,返 ExplodeStep 强类型)
                     // 之前 AddExplodeStep2 9 参数全部 errs=2,这个 4 参数 W3.5 已知 work
                     ExplodeStep step = (ExplodeStep)cfg.IAddExplodeStep(
-                        config.Explode.DefaultDistanceMm,  // ExplDist
+                        config.Explode.DefaultDistanceMm / 1000.0,  // ExplDist (SW API 单位:米)
                         false,                               // ReverseDir
                         false,                               // RigidSubassembly
                         false);                              // ExplodeRelated

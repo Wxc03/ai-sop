@@ -97,7 +97,8 @@ namespace SwSopAddin.Services
                 // 选 component 前先清空选择
                 try { ((ModelDoc2)_asm).ClearSelection2(true); } catch { /* 清失败不阻塞 */ }
                 if (!comp.Select2(false, 0)) return false;
-                ExplodeStep newStep = (ExplodeStep)_cfg.IAddExplodeStep(distance, reverse, false, false);
+                // AI response distance is expressed in mm, while the SW API takes meters.
+                ExplodeStep newStep = (ExplodeStep)_cfg.IAddExplodeStep(distance / 1000.0, reverse, false, false);
                 if (newStep == null) return false;
                 Marshal.ReleaseComObject(newStep);  // 不持有 — ApplyRebuild 拿完就行
                 return true;
