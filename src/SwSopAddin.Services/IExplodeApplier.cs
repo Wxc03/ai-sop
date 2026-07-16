@@ -16,4 +16,13 @@ namespace SwSopAddin.Services
         /// </summary>
         bool ApplyPlacement(object component, double[] direction, double distanceMeters, out string stepName);
     }
+
+    /// <summary>
+    /// 可选能力：把未同轴分组的紧固件创建为真正的径向 explode step。
+    /// 不是所有装配都提供可选的轴/发散实体，因此调用方仍可使用 IExplodeApplier 的线性路径。
+    /// </summary>
+    internal interface IRadialExplodeApplier : IExplodeApplier
+    {
+        bool ApplyRadialPlacement(object component, ExplodePlacement placement, out string stepName);
+    }
 }

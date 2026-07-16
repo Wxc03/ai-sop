@@ -69,10 +69,10 @@ namespace SwSopAddin.Services
             }
 
             var opts = drw.CreateAutoBalloonOptions();
-            opts.Layout = LayoutCircle;        // W6-fix:改 Circle
-            opts.Style = StylePolylineOut;     // W6-fix:宏录制用户选 10 (PolylineOut) 不是 1 (Circular),实测 work
+            opts.Layout = LayoutSquare;        // compact distribution around the exploded view
+            opts.Style = StyleCircular;
             opts.IgnoreMultiple = true;       // 同名件只打 1 个标
-            opts.InsertMagneticLine = true;   // 球标整齐对齐
+            opts.InsertMagneticLine = false;  // avoid long leaders extending beyond the sheet border
             opts.Size = 2;                    // W6-fix:Medium size(宏录制)
             opts.LeaderAttachmentToFaces = false;  // W6-fix:宏录制
 
@@ -90,6 +90,8 @@ namespace SwSopAddin.Services
                     {
                         if (o != null)
                         {
+                            ApplyBoldTextFormat(o);
+                            ShortenLeader(o);
                             try { Marshal.ReleaseComObject(o); }
                             catch (Exception ex) { Log.Warn(ex, "ReleaseComObject(Balloon) 失败"); }
                         }
@@ -99,12 +101,167 @@ namespace SwSopAddin.Services
                 {
                     // 单个 BalloonAnnotation,不是数组
                     count = 1;
+                    ApplyBoldTextFormat(result);
+                    ShortenLeader(result);
                     try { Marshal.ReleaseComObject(result); }
                     catch (Exception ex) { Log.Warn(ex, "ReleaseComObject(Balloon) 失败"); }
                 }
             }
             Log.Info("ApplyAutoBalloon done: {0} balloons inserted (view='{1}')", count, viewName);
             return count;
+        }
+
+        private static void ApplyBoldTextFormat(object balloon)
+        {
+            try
+            {
+                IAnnotation annotation = balloon as IAnnotation;
+                if (annotation == null)
+                {
+                    var note = balloon as Note;
+                    if (note != null) annotation = note.GetAnnotation() as IAnnotation;
+                }
+                if (annotation == null)
+                {
+                    Log.Warn("AutoBalloon returned '{0}' without IAnnotation; cannot apply text format", balloon.GetType().FullName);
+                    return;
+                }
+
+                int formats = annotation.GetTextFormatCount();
+                for (int i = 0; i < formats; i++)
+                {
+                    var format = annotation.GetTextFormat(i) as TextFormat;
+                    if (format == null) continue;
+                    format.Bold = true;
+                    format.CharHeightInPts = 16;
+                    bool applied = annotation.SetTextFormat(i, false, format);
+                    Log.Info("Balloon text format: index={0}, bold=true, height=16pt, applied={1}", i, applied);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "Unable to apply bold balloon text format");
+            }
+        }
+
+        private static void ShortenLeader(object balloon)
+        {
+            try
+            {
+                var annotation = GetAnnotation(balloon);
+                var note = GetNote(balloon, annotation);
+                if (annotation == null) return;
+
+                var label = ReadPoint(annotation.GetPosition(), 0);
+                int annotationLeaders = annotation.GetLeaderCount();
+                int noteLeaders = note != null ? note.GetLeaderCount() : 0;
+                int leaderCount = noteLeaders > 0 ? noteLeaders : annotationLeaders;
+                if (label == null || leaderCount < 1)
+                {
+                    Log.Warn("Balloon leader skipped: type={0}, annotationLeaders={1}, noteLeaders={2}, positionValues={3}",
+                        balloon.GetType().FullName, annotationLeaders, noteLeaders, label == null ? 0 : 3);
+                    return;
+                }
+
+                double[] attachment = null;
+                double greatestDistance = 0;
+                for (int leaderIndex = 0; leaderIndex < leaderCount; leaderIndex++)
+                {
+                    object rawPoints = noteLeaders > 0
+                        ? note.GetLeaderAtIndex(leaderIndex)
+                        : annotation.GetLeaderPointsAtIndex(leaderIndex);
+                    var points = ReadPoints(rawPoints);
+                    for (int pointIndex = 0; pointIndex < points.Count; pointIndex++)
+                    {
+                        double distance = Distance(label, points[pointIndex]);
+                        if (distance > greatestDistance)
+                        {
+                            greatestDistance = distance;
+                            attachment = points[pointIndex];
+                        }
+                    }
+                }
+
+                // Keep a readable 18 mm leader, but pull every longer callout back toward
+                // its model attachment point.  This is independent of SW's AutoBalloon layout.
+                const double targetLength = 0.026;
+                if (attachment == null || greatestDistance <= targetLength * 1.5)
+                {
+                    Log.Warn("Balloon leader skipped: readablePoints={0}, greatestDistance={1:F1}mm",
+                        attachment != null, greatestDistance * 1000);
+                    return;
+                }
+
+                double ratio = targetLength / greatestDistance;
+                double x = attachment[0] + (label[0] - attachment[0]) * ratio;
+                double y = attachment[1] + (label[1] - attachment[1]) * ratio;
+                double z = attachment[2] + (label[2] - attachment[2]) * ratio;
+                bool moved = annotation.SetPosition2(x, y, z);
+                Log.Info("Balloon leader shortened: {0:F1}mm -> {1:F1}mm, moved={2}",
+                    greatestDistance * 1000, targetLength * 1000, moved);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "Unable to shorten balloon leader");
+            }
+        }
+
+        private static IAnnotation GetAnnotation(object balloon)
+        {
+            var annotation = balloon as IAnnotation;
+            if (annotation != null) return annotation;
+            var note = balloon as Note;
+            return note != null ? note.GetAnnotation() as IAnnotation : null;
+        }
+
+        private static Note GetNote(object balloon, IAnnotation annotation)
+        {
+            var note = balloon as Note;
+            if (note != null) return note;
+            try { return annotation != null ? annotation.GetSpecificAnnotation() as Note : null; }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "Unable to resolve AutoBalloon Note");
+                return null;
+            }
+        }
+
+        private static double[] ReadPoint(object raw, int offset)
+        {
+            var values = ReadValues(raw);
+            return values.Count >= offset + 3
+                ? new[] { values[offset], values[offset + 1], values[offset + 2] }
+                : null;
+        }
+
+        private static List<double[]> ReadPoints(object raw)
+        {
+            var values = ReadValues(raw);
+            var points = new List<double[]>();
+            for (int i = 0; i + 2 < values.Count; i += 3)
+                points.Add(new[] { values[i], values[i + 1], values[i + 2] });
+            return points;
+        }
+
+        private static List<double> ReadValues(object raw)
+        {
+            var values = new List<double>();
+            var sequence = raw as System.Collections.IEnumerable;
+            if (sequence == null) return values;
+            foreach (var value in sequence)
+            {
+                try { values.Add(Convert.ToDouble(value)); }
+                catch { return new List<double>(); }
+            }
+            return values;
+        }
+
+        private static double Distance(double[] first, double[] second)
+        {
+            double x = first[0] - second[0];
+            double y = first[1] - second[1];
+            double z = first[2] - second[2];
+            return Math.Sqrt(x * x + y * y + z * z);
         }
     }
 }

@@ -264,7 +264,8 @@ namespace SwSopAddin.Tests
             // 注:result.IsoViewInserted 在 RunStep3_View 不抛时设 true — mock 返 null view 但 IsoViewInserted=true(代码 bug 不算,本测试不检)
 
             // Step 3 走 mock(返 null View)
-            Assert.AreEqual(1, mocks.View.CallCount, "Step 3 应调 ViewService");
+            Assert.AreEqual(2, mocks.View.CallCount, "Step 3 应分别插入爆炸与原装配等轴测视图");
+            Assert.AreEqual(1, mocks.View.InsertOriginalCallCount, "Step 3 应插入一张原装配等轴测视图");
 
             // Step 4/5/6 因 view null 早退,CallCount = 0
             Assert.AreEqual(0, mocks.Balloon.CallCount, "Step 4 应跳过(view null)→ BalloonService 0 call");

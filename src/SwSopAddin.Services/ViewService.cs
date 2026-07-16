@@ -249,13 +249,32 @@ namespace SwSopAddin.Services
                     Log.Warn(ex, "asm.ShowExploded2(true, {0}) 失败", preExplodeName);
                 }
 
-                // W7+ 关键修复:显式设 view.DisplayState。反射确认 SW 2024 interop IView.DisplayState
-                // 是 System.String Property 有 setter,设 = "爆炸视图2" 让 view 引用 exploded state。
+                // IView.ShowExploded 才是工程图视图绑定装配爆炸状态的 API。
+                // DisplayState 只是显示状态名称；把“爆炸视图1”写进去在 SW 2024 会静默保持
+                // Display State-1，结果工程图只显示原装配。这里显式启用并读回验证。
+                try
+                {
+                    bool beforeExploded = view.IsExploded();
+                    bool showOk = view.ShowExploded(true);
+                    bool afterExploded = view.IsExploded();
+                    Log.Info("View '{0}' ShowExploded(true): {1} -> {2}, call={3}",
+                        view.Name, beforeExploded, afterExploded, showOk);
+                    if (!afterExploded)
+                    {
+                        Log.Warn("View '{0}' 未进入爆炸状态；工程图可能仍显示原装配", view.Name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn(ex, "view.ShowExploded(true) 失败");
+                }
+
+                // DisplayState 不负责绑定 explode view，保留赋值仅作旧版本兼容和诊断。
                 try
                 {
                     string before = view.DisplayState ?? "(null)";
                     view.DisplayState = preExplodeName;
-                    Log.Info("view.DisplayState: '{0}' -> '{1}' (AutoBalloon5 用此字段找组件)",
+                    Log.Info("view.DisplayState: '{0}' -> '{1}' (仅诊断，不用于爆炸绑定)",
                         before, view.DisplayState ?? "(null)");
                 }
                 catch (Exception ex)
@@ -292,7 +311,138 @@ namespace SwSopAddin.Services
 
         public View InsertOriginalIso(ISldWorks sw, DrawingDoc drw, AssemblyDoc asm, double x, double y, double z)
         {
-            throw new NotImplementedException("InsertOriginalIso 留到 W7 智能布局阶段实现");
+            if (sw == null) throw new ArgumentNullException(nameof(sw));
+            if (drw == null) throw new ArgumentNullException(nameof(drw));
+            if (asm == null) throw new ArgumentNullException(nameof(asm));
+
+            string modelName = GetModelName(asm);
+            string asmTitle = ((IModelDoc2)asm).GetTitle();
+            string drwTitle = ((IModelDoc2)drw).GetTitle();
+            string explodeViewName = GetExplodeViewNameForDefault(asm);
+            try
+            {
+                sw.ActivateDoc(asmTitle);
+                if (!string.IsNullOrEmpty(explodeViewName)) asm.ShowExploded2(false, explodeViewName);
+                Log.Info("InsertOriginalIso: assembly switched to collapsed state (explode='{0}')", explodeViewName ?? "(none)");
+
+                sw.ActivateDoc(drwTitle);
+                View view = null;
+                try { view = (View)drw.CreateDrawViewFromModelView3(modelName, "*等轴测", x, y, z); }
+                catch (Exception ex) { Log.Warn(ex, "InsertOriginalIso: V3 creation failed"); }
+                if (view == null) view = TryCreate(drw, modelName, "*Isometric", x, y, z, "Original: V2 *Isometric");
+                if (view == null) throw new InvalidOperationException("Unable to insert the original assembly isometric view.");
+
+                try
+                {
+                    bool before = view.IsExploded();
+                    view.ShowExploded(false);
+                    view.SetDisplayMode(2);
+                    view.ScaleDecimal = 0.56;
+                    PositionOriginalAboveBom(drw, view, x, y);
+                    Log.Info("Original view '{0}' ShowExploded(false): {1} -> {2}; scale={3:F2}", view.Name, before, view.IsExploded(), view.ScaleDecimal);
+                }
+                catch (Exception ex) { Log.Warn(ex, "Original view display setup failed"); }
+                return view;
+            }
+            finally
+            {
+                try
+                {
+                    sw.ActivateDoc(asmTitle);
+                    if (!string.IsNullOrEmpty(explodeViewName)) asm.ShowExploded2(true, explodeViewName);
+                    Log.Info("InsertOriginalIso: restored exploded state '{0}'", explodeViewName ?? "(none)");
+                }
+                catch (Exception ex) { Log.Warn(ex, "InsertOriginalIso: failed to restore exploded state"); }
+                try { sw.ActivateDoc(drwTitle); } catch { }
+            }
+        }
+
+        private static void PositionOriginalAboveBom(DrawingDoc drw, View view, double preferredX, double preferredY)
+        {
+            const double margin = 0.008;
+            const double bomLeft = 0.225;
+            const double bomTop = 0.155;
+
+            try
+            {
+                Sheet sheet = (Sheet)drw.GetCurrentSheet();
+                double sheetWidth = 0, sheetHeight = 0;
+                sheet.GetSize(ref sheetWidth, ref sheetHeight);
+                if (sheetWidth <= 0 || sheetHeight <= 0) throw new InvalidOperationException("Invalid sheet size");
+
+                // The original assembly is a reference view: place it above the lower-right BOM
+                // whenever that zone has room.  The region is always inset from the drawing frame.
+                double regionLeft = bomLeft;
+                double regionRight = sheetWidth - margin;
+                double regionBottom = bomTop;
+                double regionTop = sheetHeight - margin;
+                view.Position = new double[] { preferredX, preferredY, 0 };
+
+                double[] outline = ReadOutline(view);
+                if (outline == null) throw new InvalidOperationException("GetOutline returned no usable rectangle");
+                double width = outline[2] - outline[0];
+                double height = outline[1] - outline[3];
+                double availableWidth = regionRight - regionLeft;
+                double availableHeight = regionTop - regionBottom;
+                if (width > availableWidth || height > availableHeight)
+                {
+                    double factor = Math.Min(availableWidth / width, availableHeight / height) * 0.96;
+                    view.ScaleDecimal *= factor;
+                    outline = ReadOutline(view);
+                    Log.Info("Original view scaled to fit BOM-above zone: factor={0:F3}, scale={1:F3}", factor, view.ScaleDecimal);
+                }
+
+                if (outline == null) throw new InvalidOperationException("GetOutline failed after scaling");
+                double dx = outline[0] < regionLeft ? regionLeft - outline[0]
+                    : outline[2] > regionRight ? regionRight - outline[2] : 0;
+                double dy = outline[3] < regionBottom ? regionBottom - outline[3]
+                    : outline[1] > regionTop ? regionTop - outline[1] : 0;
+                if (dx != 0 || dy != 0)
+                {
+                    double[] pos = ReadPosition(view.Position);
+                    if (pos == null) throw new InvalidOperationException("View.Position returned no usable point");
+                    view.Position = new[] { pos[0] + dx, pos[1] + dy, pos[2] };
+                }
+
+                double[] finalOutline = ReadOutline(view);
+                Log.Info("Original view BOM-above placement: region=[{0:F3},{1:F3}]-[{2:F3},{3:F3}], outline=[{4:F3},{5:F3}]-[{6:F3},{7:F3}]",
+                    regionLeft, regionBottom, regionRight, regionTop,
+                    finalOutline[0], finalOutline[3], finalOutline[2], finalOutline[1]);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "Original view BOM-above placement failed; retaining requested position");
+            }
+        }
+
+        private static double[] ReadOutline(View view)
+        {
+            var values = ReadDoubleArray(view.GetOutline());
+            if (values == null || values.Length < 4) return null;
+            return new[]
+            {
+                Math.Min(values[0], values[2]), Math.Max(values[1], values[3]),
+                Math.Max(values[0], values[2]), Math.Min(values[1], values[3])
+            };
+        }
+
+        private static double[] ReadPosition(object raw)
+        {
+            var values = ReadDoubleArray(raw);
+            return values != null && values.Length >= 3 ? new[] { values[0], values[1], values[2] } : null;
+        }
+
+        private static double[] ReadDoubleArray(object raw)
+        {
+            var sequence = raw as System.Collections.IEnumerable;
+            if (sequence == null) return null;
+            var values = new List<double>();
+            foreach (var value in sequence)
+            {
+                try { values.Add(Convert.ToDouble(value)); }
+                catch { return null; }
+            }
+            return values.ToArray();
         }
 
         public ViewInsertDiagnostics Diagnose(ISldWorks sw, DrawingDoc drw, AssemblyDoc asm)

@@ -37,7 +37,7 @@ namespace SwSopAddin.Services
             BomTableAnnotation bom = (BomTableAnnotation)targetView.InsertBomTable4(
                 UseAnchorPoint: false,
                 X: 0.234,
-                Y: 0.268,
+                Y: 0.145,
                 AnchorType: AnchorTopLeft,
                 BomType: BomTypeTopLevelOnly,
                 Configuration: configuration ?? "",

@@ -45,6 +45,16 @@ namespace SwSopAddin.Tests
             }
         }
 
+        private class RecordingRadialExplodeApplier : RecordingExplodeApplier, IRadialExplodeApplier
+        {
+            public bool ApplyRadialPlacement(object component, ExplodePlacement placement, out string stepName)
+            {
+                Calls.Add("Radial:" + (component as string) + ":" + placement.DistanceMeters);
+                stepName = (component as string) + "_RadialStep";
+                return true;
+            }
+        }
+
         private static ExplodeLayoutResult MakePlan(params string[] names)
         {
             var plan = new ExplodeLayoutResult();
@@ -118,6 +128,21 @@ namespace SwSopAddin.Tests
 
             Assert.AreEqual("Resolve:A:0", applier.Calls[0]);
             Assert.AreEqual("Apply:A:0.05", applier.Calls[1]);
+        }
+
+        [TestMethod]
+        public void ApplyPlan_UngroupedFastener_UsesRadialCapability()
+        {
+            var plan = MakePlan("Nut");
+            plan.Placements[0].Role = ExplodeRole.Fastener;
+            plan.Placements[0].CoaxialGroupId = -1;
+            var applier = new RecordingRadialExplodeApplier();
+
+            ExplodeService.ApplyPlan(plan, applier, out int processed, out int failed);
+
+            Assert.AreEqual(1, processed);
+            Assert.AreEqual(0, failed);
+            CollectionAssert.Contains(applier.Calls, "Radial:Nut:0.05");
         }
 
         // ===== 失败恢复:单个失败不中断循环 =====

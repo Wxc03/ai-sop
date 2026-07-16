@@ -125,6 +125,12 @@ namespace SwSopAddin.Infrastructure
         // --- 单件紧固件径向 ---
         /// <summary>不成组的单件紧固件径向外推距离 = 该系数 × 装配对角线。默认 0.15。</summary>
         public double FastenerRadialDistanceFraction { get; set; } = 0.15;
+
+        /// <summary>
+        /// 对未形成同轴堆叠的紧固件优先创建真正的 AddRadialExplodeStep。
+        /// 组件缺少有效轴或发散实体时自动回退到线性步骤。
+        /// </summary>
+        public bool EnableRadialSteps { get; set; } = true;
     }
 
     /// <summary>

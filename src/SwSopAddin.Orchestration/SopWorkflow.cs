@@ -102,11 +102,15 @@ namespace SwSopAddin.Orchestration
                     View isoView = RunStep3_View(sw, drw, asm, config, result);
                     if (isoView != null) rb.Track(() => SafeReleaseView(isoView));
 
+                    View originalIsoView = RunStep3_OriginalView(sw, drw, asm);
+                    if (originalIsoView != null) rb.Track(() => SafeReleaseView(originalIsoView));
+
                     // 单页 SOP 的唯一业务视图就是 Step 3 创建的爆炸等轴测。不要重新枚举 drawing
                     // 内部的投影视图/占位视图，否则旧布局器会把它们与 iso 一起缩放、居中。
                     var ctx = new DrawingViewContext
                     {
                         IsoView = isoView,
+                        OriginalIsoView = originalIsoView,
                         AllViews = isoView != null ? new[] { isoView } : new View[0],
                     };
 
@@ -346,6 +350,21 @@ namespace SwSopAddin.Orchestration
                 // 不 throw — 让球标/BOM/存盘决定要不要继续
             }
             return isoView;
+        }
+
+        private View RunStep3_OriginalView(ISldWorks sw, DrawingDoc drw, AssemblyDoc asm)
+        {
+            Log.Info("Step 3/7: insert collapsed assembly isometric reference view");
+            try
+            {
+                // Reserve the lower-right for the BOM and title block.
+                return _view.InsertOriginalIso(sw, drw, asm, 0.315, 0.225, 0);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "Collapsed assembly isometric insertion failed; continuing with exploded view");
+                return null;
+            }
         }
 
         /// <summary>Step 4:球标。需要 isoView != null,否则跳过。</summary>

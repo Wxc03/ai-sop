@@ -13,6 +13,7 @@ namespace SwSopAddin.Orchestration
         public Sheet Sheet { get; set; }
         public string SheetName { get; set; }
         public View IsoView { get; set; }
+        public View OriginalIsoView { get; set; }
         public View[] AllViews { get; set; }          // 未来:只含该 sheet 分组的 view
         public int BalloonNumberOffset { get; set; }   // 未来:承接上一个 sheet 的球标编号延续
         public BomTableAnnotation BomTable { get; set; }

@@ -52,6 +52,7 @@ namespace SwSopAddin.Tests.Mocks
     public class MockViewService : IViewService
     {
         public int CallCount;
+        public int InsertOriginalCallCount;
         public View NextView = null;  // null = 走"插视图失败"路径,SopWorkflow 不 throw,balloon/bom 跳过
         public Exception ThrowOnCall;
         public ViewInsertDiagnostics LastDiagnose;
@@ -68,6 +69,7 @@ namespace SwSopAddin.Tests.Mocks
         public View InsertOriginalIso(ISldWorks sw, DrawingDoc drw, AssemblyDoc asm, double x, double y, double z)
         {
             CallCount++;
+            InsertOriginalCallCount++;
             if (ThrowOnCall != null) throw ThrowOnCall;
             return NextView;
         }

@@ -420,7 +420,7 @@ namespace SwSopAddin.Services
             // 这样每个 IAddExplodeStep 调用都能挂到一个已存在的 active explode view 上。
             string preCreatedViewName = CreateAndActivateExplodedView(asm, cfgName);
 
-            IExplodeApplier applier = new SwDirectionalExplodeApplier(asm, cfg);
+            IExplodeApplier applier = new SwDirectionalExplodeApplier(asm, cfg, config.Explode.EnableRadialSteps);
             int processed, failed;
             ApplyPlan(plan, applier, out processed, out failed);
             Log.Info("SmartHybridCreate: ApplyPlan done processed={0} failed={1}", processed, failed);
@@ -502,7 +502,16 @@ namespace SwSopAddin.Services
                 }
 
                 string stepName;
-                bool ok = applier.ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+                bool useRadial = placement.Role == ExplodeRole.Fastener && placement.CoaxialGroupId < 0;
+                bool ok;
+                if (useRadial && applier is IRadialExplodeApplier radialApplier)
+                {
+                    ok = radialApplier.ApplyRadialPlacement(comp, placement, out stepName);
+                }
+                else
+                {
+                    ok = applier.ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+                }
                 if (ok)
                 {
                     processed++;

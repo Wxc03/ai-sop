@@ -24,7 +24,7 @@ namespace SwSopAddin.Services
     /// 已知局限(需真机验证,见 Part A Phase 3):这只是"轴对齐近似"——SmartHybrid 算出的方向是任意
     /// 连续向量,IAddExplodeStep 只能沿已选参考的法向/轴向移动,近似度对非轴对齐主体件不保证理想。
     /// </summary>
-    internal class SwDirectionalExplodeApplier : IExplodeApplier
+    internal class SwDirectionalExplodeApplier : IRadialExplodeApplier
     {
         private static readonly Logger Log = Logging.ForType(typeof(SwDirectionalExplodeApplier));
 
@@ -46,11 +46,13 @@ namespace SwSopAddin.Services
         private readonly AssemblyDoc _asm;
         private readonly IConfiguration _cfg;
         private readonly string _asmTitle;
+        private readonly bool _enableRadialSteps;
 
-        public SwDirectionalExplodeApplier(AssemblyDoc asm, IConfiguration cfg)
+        public SwDirectionalExplodeApplier(AssemblyDoc asm, IConfiguration cfg, bool enableRadialSteps = true)
         {
             _asm = asm ?? throw new ArgumentNullException(nameof(asm));
             _cfg = cfg ?? throw new ArgumentNullException(nameof(cfg));
+            _enableRadialSteps = enableRadialSteps;
             try { _asmTitle = StripAssemblyExtension(((ModelDoc2)_asm).GetTitle()); } catch { _asmTitle = null; }
         }
 
@@ -205,6 +207,121 @@ namespace SwSopAddin.Services
                 Log.Warn(ex, "ApplyPlacement 异常");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 真正的径向步骤需要组件(Mark=1)、爆炸轴(Mark=34)、发散方向(Mark=64)。
+        /// 组件体上没有满足条件的实体时安全回退到原有线性步骤，避免单个紧固件让整个
+        /// SmartHybrid 失败。
+        /// </summary>
+        public bool ApplyRadialPlacement(object component, ExplodePlacement placement, out string stepName)
+        {
+            stepName = null;
+            IComponent2 comp = component as IComponent2;
+            if (!_enableRadialSteps || comp == null || placement == null)
+                return ApplyPlacement(component, placement?.Direction, placement?.DistanceMeters ?? 0, out stepName);
+
+            Body2 body = null;
+            object axisEntity = null;
+            object divergeEntity = null;
+            try
+            {
+                var modelDoc = (ModelDoc2)_asm;
+                modelDoc.ClearSelection2(true);
+                body = comp.GetBody() as Body2;
+                if (body == null || !TryFindRadialEntities(body, out axisEntity, out divergeEntity))
+                {
+                    Log.Info("ApplyRadialPlacement: {0} 缺有效轴/发散实体，回退线性步骤", comp.Name2);
+                    return ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+                }
+
+                if (!comp.Select2(false, 1) || !SelectEntity(axisEntity, true, 34) || !SelectEntity(divergeEntity, true, 64))
+                {
+                    Log.Warn("ApplyRadialPlacement: {0} 径向选择集建立失败，回退线性步骤", comp.Name2);
+                    return ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+                }
+
+                int error;
+                ExplodeStep step = (ExplodeStep)_cfg.AddRadialExplodeStep(
+                    placement.DistanceMeters, 0.0, true, out error);
+                if (step == null || error != 0)
+                {
+                    if (step != null) Marshal.ReleaseComObject(step);
+                    Log.Warn("ApplyRadialPlacement: {0} AddRadialExplodeStep 失败 Error={1}({2})，回退线性步骤",
+                        comp.Name2, error, DecodeCreateExplodeStepError(error));
+                    return ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+                }
+
+                stepName = step.Name;
+                Marshal.ReleaseComObject(step);
+                ((ModelDoc2)_asm).EditRebuild3();
+                Log.Info("ApplyRadialPlacement: {0} 成功，距离={1:F1}mm", comp.Name2, placement.DistanceMeters * 1000.0);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "ApplyRadialPlacement: {0} 异常，回退线性步骤", comp?.Name2 ?? "(null)");
+                return ApplyPlacement(comp, placement.Direction, placement.DistanceMeters, out stepName);
+            }
+            finally
+            {
+                ReleaseCom(axisEntity);
+                if (!ReferenceEquals(divergeEntity, axisEntity)) ReleaseCom(divergeEntity);
+                if (body != null) ReleaseCom(body);
+            }
+        }
+
+        private static bool TryFindRadialEntities(Body2 body, out object axisEntity, out object divergeEntity)
+        {
+            axisEntity = null;
+            divergeEntity = null;
+
+            // 圆柱/圆锥面是 API 明确支持的爆炸轴。若没有，使用第一条直线边作轴。
+            object[] faces = body.GetFaces() as object[];
+            foreach (object candidate in faces ?? new object[0])
+            {
+                var face = candidate as Face2;
+                var surface = face?.GetSurface() as Surface;
+                bool validAxis = surface != null && (surface.IsCylinder() || surface.IsCone());
+                if (surface != null) ReleaseCom(surface);
+                if (validAxis && axisEntity == null) axisEntity = candidate;
+                else ReleaseCom(candidate);
+            }
+
+            object[] edges = body.GetEdges() as object[];
+            foreach (object candidate in edges ?? new object[0])
+            {
+                var edge = candidate as Edge;
+                var curve = edge?.GetCurve() as Curve;
+                bool isLine = curve != null && curve.IsLine();
+                if (curve != null) ReleaseCom(curve);
+                if (!isLine) { ReleaseCom(candidate); continue; }
+                if (axisEntity == null) axisEntity = candidate;
+                else if (divergeEntity == null) divergeEntity = candidate;
+                else ReleaseCom(candidate);
+            }
+
+            // 真实径向操作还必须有一个与轴成角的发散实体；缺少时由调用方退回线性。
+            if (axisEntity == null || divergeEntity == null)
+            {
+                ReleaseCom(axisEntity);
+                ReleaseCom(divergeEntity);
+                axisEntity = divergeEntity = null;
+                return false;
+            }
+            return true;
+        }
+
+        private static bool SelectEntity(object entity, bool append, int mark)
+        {
+            if (entity is IEntity selectable) return selectable.Select2(append, mark);
+            return false;
+        }
+
+        private static void ReleaseCom(object value)
+        {
+            if (value == null) return;
+            try { Marshal.ReleaseComObject(value); } catch { }
         }
 
         /// <summary>
