@@ -228,7 +228,10 @@ namespace SwSopAddin.Orchestration
                         ExplodeResult fakeExplode = new ExplodeResult();  // step 4-6 不严格需要真实 explodeResult
                         switch (stepNumber)
                         {
-                            case 3: RunStep3_View(sw, drw, asm, config, result); break;
+                            case 3:
+                                RunStep3_View(sw, drw, asm, config, result);
+                                RunStep3_OriginalView(sw, drw, asm);
+                                break;
                             case 4: RunStep4_Balloon(sw, drw, asm, fakeExplode, result); break;
                             case 5: RunStep5_Bom(sw, drw, asm, result); break;
                             case 6:

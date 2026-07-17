@@ -82,6 +82,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\..\New BOM template.sldbomtbt">
+      <Link>New BOM template.sldbomtbt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 显式声明,因为 legacy csproj 间的传递 PackageReference 不自动生效 -->
     <PackageReference Include="NLog" Version="5.3.4" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
