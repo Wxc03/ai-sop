@@ -34,7 +34,8 @@ namespace SwSopAddin.UI
             var lblHint = new Label
             {
                 Text = "每步会单独跑 RunStep(N),失败状态保留供检查。建议顺序:\r\n" +
-                       "1 → 2 → (切到新建的工程图窗口) → 3..7\r\n" +
+                       "自动爆炸: 1 → 2 → (切到新建的工程图窗口) → 3..7\r\n" +
+                       "手动爆炸: 保存爆炸视图后，从 2 → (切到工程图窗口) → 3..7\r\n" +
                        "Step 3-7 需要工程图为当前活动窗口,原装配体窗口不要关(不需要是活动窗口)。",
                 AutoSize = false,
                 Width = ContentWidth,

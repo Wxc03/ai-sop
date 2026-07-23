@@ -229,6 +229,17 @@ namespace SwSopAddin.Orchestration
                         switch (stepNumber)
                         {
                             case 3:
+                                // Step 1 is intentionally optional in the step-by-step workflow.  When the
+                                // user has made an explode view manually, recover its persisted SW name here
+                                // instead of relying on the transient result produced by Step 1 in this process.
+                                result.ExplodedViewName = TryFindExistingExplodedView(asm);
+                                if (string.IsNullOrEmpty(result.ExplodedViewName))
+                                {
+                                    result.ErrorMessage = "步骤 3 未找到已保存的爆炸视图。请先在装配体中手动创建并保存爆炸视图，再执行步骤 2 和步骤 3。";
+                                    Log.Warn("RunStep 3: 未找到已保存的爆炸视图，拒绝插入未爆炸视图");
+                                    break;
+                                }
+                                Log.Info("RunStep 3: reusing existing exploded view '{0}'", result.ExplodedViewName);
                                 RunStep3_View(sw, drw, asm, config, result);
                                 RunStep3_OriginalView(sw, drw, asm);
                                 break;
@@ -755,7 +766,58 @@ namespace SwSopAddin.Orchestration
             return null;
         }
 
-        /// <summary>诊断用:描述当前 ActiveDoc 是什么,失败时给用户提示排查方向。</summary>
+        /// <summary>
+        /// Resolves a persisted exploded view for a manually exploded assembly. The name returned by
+        /// GetExplodedViewNames2 is the stable identifier accepted by ShowExploded2, so Step 3 can run
+        /// independently after a user has completed the explosion manually.
+        /// </summary>
+        private static string TryFindExistingExplodedView(AssemblyDoc asm)
+        {
+            if (asm == null) return null;
+
+            IConfiguration configuration = null;
+            try
+            {
+                configuration = ((IModelDoc2)asm).ConfigurationManager.ActiveConfiguration;
+                string configurationName = configuration?.Name;
+                if (string.IsNullOrEmpty(configurationName)) return null;
+
+                string viewName = LastExplodedViewName(asm.GetExplodedViewNames2(configurationName));
+                if (!string.IsNullOrEmpty(viewName))
+                {
+                    Log.Info("TryFindExistingExplodedView: configuration='{0}', view='{1}'", configurationName, viewName);
+                    return viewName;
+                }
+
+                Log.Warn("TryFindExistingExplodedView: configuration='{0}' has no exploded views", configurationName);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "TryFindExistingExplodedView failed");
+                return null;
+            }
+            finally
+            {
+                try { if (configuration != null) Marshal.ReleaseComObject(configuration); }
+                catch { }
+            }
+        }
+
+        private static string LastExplodedViewName(object names)
+        {
+            if (names is string single) return single;
+            if (!(names is System.Collections.IEnumerable sequence)) return null;
+
+            string last = null;
+            foreach (object item in sequence)
+            {
+                if (item is string name && !string.IsNullOrWhiteSpace(name)) last = name;
+            }
+            return last;
+        }
+
+        /// <summary>诊断用：描述当前 ActiveDoc 类型，失败时为用户提供排查信息。</summary>
         private static string DescribeActiveDoc(ISldWorks sw)
         {
             try

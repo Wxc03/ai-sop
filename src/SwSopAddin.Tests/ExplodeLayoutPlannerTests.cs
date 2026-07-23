@@ -68,21 +68,36 @@ namespace SwSopAddin.Tests
         }
 
         [TestMethod]
-        public void Plan_SingleBody_ProducesOnePlacement()
+        public void Plan_SingleBody_RemainsAsTheCenteredAnchor()
         {
-            // 单个远离原点的 body,验证 Plan 端到端跑通,方向指向自身(退化情形走 DefaultDivergeAxis)
+            // 单一主体就是装配基准，不应被推离原始位置。
             var comps = new List<ComponentGeometry>
             {
                 MakeBox("Body1", new double[] { -0.05, -0.05, -0.05, 0.05, 0.05, 0.05 }, index: 0),
             };
             var result = ExplodeLayoutPlanner.Plan(comps, DefaultOpt());
 
-            Assert.AreEqual(1, result.Placements.Count);
-            var p = result.Placements[0];
-            Assert.AreEqual("Body1", p.ComponentName);
-            Assert.AreEqual(ExplodeRole.Body, p.Role);
-            Assert.IsNotNull(p.Direction);
-            Assert.IsTrue(p.DistanceMeters > 0);
+            Assert.AreEqual(0, result.Placements.Count);
+        }
+
+        [TestMethod]
+        public void Plan_LargestBodyStaysCentered_OtherBodiesMoveAlongSignedAssemblyAxis()
+        {
+            var comps = new List<ComponentGeometry>
+            {
+                MakeBox("Housing", new double[] { -0.05, -0.05, -0.05, 0.05, 0.05, 0.05 }, index: 0),
+                MakeBox("LeftCover", new double[] { -0.15, -0.04, -0.04, -0.07, 0.04, 0.04 }, index: 1),
+                MakeBox("TopSupport", new double[] { -0.03, 0.08, -0.03, 0.03, 0.14, 0.03 }, index: 2),
+            };
+
+            var result = ExplodeLayoutPlanner.Plan(comps, DefaultOpt());
+
+            Assert.AreEqual(2, result.Placements.Count);
+            Assert.IsFalse(result.Placements.Any(p => p.ComponentName == "Housing"));
+            var left = result.Placements.Single(p => p.ComponentName == "LeftCover");
+            var top = result.Placements.Single(p => p.ComponentName == "TopSupport");
+            CollectionAssert.AreEqual(new double[] { -1, 0, 0 }, left.Direction);
+            CollectionAssert.AreEqual(new double[] { 0, 1, 0 }, top.Direction);
         }
 
         // ===== ClassifyRole 优先级:名字关键词 > 长径比 > 体积占比 =====
@@ -90,12 +105,40 @@ namespace SwSopAddin.Tests
         [TestMethod]
         public void ClassifyRole_NameKeywordMatch_ReturnsFastener_EvenIfBigAndCubic()
         {
-            // 立方体、体积占比很大,但文件名含 "bolt" 关键词 — 关键词优先级最高
+            // 名称辅助只在用户显式启用时生效。
             var opt = DefaultOpt();
+            opt.UseNameHeuristics = true;
             var g = MakeBox("Bolt_M8x40", new double[] { 0, 0, 0, 0.5, 0.5, 0.5 });
             double asmVolume = g.Volume * 2; // volRatio = 0.5,远超 FastenerVolumeFraction
 
             Assert.AreEqual(ExplodeRole.Fastener, ExplodeLayoutPlanner.ClassifyRole(g, opt, asmVolume));
+        }
+
+        [TestMethod]
+        public void ClassifyRole_StructuralKeywordKeepsThinBasePlateAsBody()
+        {
+            var opt = DefaultOpt();
+            var g = MakeBox("Base Plate", new double[] { 0, 0, 0, 0.006, 0.02, 0.144 });
+
+            Assert.AreEqual(ExplodeRole.Body, ExplodeLayoutPlanner.ClassifyRole(g, opt, asmVolume: 0.1));
+        }
+
+        [TestMethod]
+        public void ClassifyRole_PlanarComponentIsBodyWithoutAnyNamingConvention()
+        {
+            var opt = DefaultOpt();
+            var g = MakeBox("Part_001", new double[] { 0, 0, 0, 0.006, 0.06, 0.08 });
+
+            Assert.AreEqual(ExplodeRole.Body, ExplodeLayoutPlanner.ClassifyRole(g, opt, asmVolume: 0.1));
+        }
+
+        [TestMethod]
+        public void ClassifyRole_RodLikeComponentIsFastenerWithoutAnyNamingConvention()
+        {
+            var opt = DefaultOpt();
+            var g = MakeBox("Part_002", new double[] { 0, 0, 0, 0.008, 0.008, 0.08 });
+
+            Assert.AreEqual(ExplodeRole.Fastener, ExplodeLayoutPlanner.ClassifyRole(g, opt, asmVolume: 0.1));
         }
 
         [TestMethod]
@@ -186,6 +229,18 @@ namespace SwSopAddin.Tests
             Assert.AreEqual(0, dir[0], Tol);
             Assert.AreEqual(0, dir[1], Tol);
             Assert.AreEqual(1, dir[2], Tol);
+        }
+
+        [TestMethod]
+        public void AxisAlignedDivergenceDirection_SnapsDiagonalOffsetToDominantSignedAxis()
+        {
+            var opt = DefaultOpt();
+            double[] center = { 0, 0, 0 };
+            double[] centroid = { -0.08, 0.03, 0.02 };
+
+            var dir = ExplodeLayoutPlanner.AxisAlignedDivergenceDirection(center, centroid, opt);
+
+            CollectionAssert.AreEqual(new double[] { -1, 0, 0 }, dir);
         }
 
         // ===== NormalizedDistance clamp =====
@@ -303,6 +358,32 @@ namespace SwSopAddin.Tests
             Assert.AreEqual(2, placements[2].StackOrder);
         }
 
+        [TestMethod]
+        public void AssignStackDistances_GroupOnNegativeSide_MovesOutwardAlongNegativeAxis()
+        {
+            var opt = DefaultOpt();
+            opt.CoaxialSpacingMm = 10;
+            var near = MakeBox("Near", new double[] { -0.002, -0.002, -0.02, 0.002, 0.002, -0.01 }, index: 0);
+            var far = MakeBox("Far", new double[] { -0.002, -0.002, -0.05, 0.002, 0.002, -0.04 }, index: 1);
+            var grp = new CoaxialGroup
+            {
+                Id = 0,
+                Axis = new double[] { 0, 0, 1 },
+                AxisPoint = near.Center,
+                Members = new List<ComponentGeometry> { near, far }
+            };
+
+            var placements = new List<ExplodePlacement>();
+            ExplodeLayoutPlanner.AssignStackDistances(grp, opt, placements, new double[] { 0, 0, 0 });
+
+            Assert.AreEqual("Near", placements[0].ComponentName);
+            Assert.AreEqual("Far", placements[1].ComponentName);
+            CollectionAssert.AreEqual(new double[] { 0, 0, -1 }, placements[0].Direction);
+            CollectionAssert.AreEqual(new double[] { 0, 0, -1 }, placements[1].Direction);
+            Assert.AreEqual(0.01, placements[0].DistanceMeters, Tol);
+            Assert.AreEqual(0.02, placements[1].DistanceMeters, Tol);
+        }
+
         // ===== RadialDirection =====
 
         [TestMethod]
@@ -340,6 +421,16 @@ namespace SwSopAddin.Tests
             Assert.AreEqual(expected[0], dir[0], Tol);
             Assert.AreEqual(expected[1], dir[1], Tol);
             Assert.AreEqual(expected[2], dir[2], Tol);
+        }
+
+        [TestMethod]
+        public void AxialOutwardDirection_UsesPartAxisAndSideOfAssembly()
+        {
+            var screw = MakeBox("Set Screw", new double[] { -0.002, -0.04, -0.002, 0.002, -0.01, 0.002 });
+
+            var dir = ExplodeLayoutPlanner.AxialOutwardDirection(screw, new double[] { 0, 0, 0 });
+
+            CollectionAssert.AreEqual(new double[] { 0, -1, 0 }, dir);
         }
 
         // ===== PrimaryAxis / MainAxis =====

@@ -42,19 +42,26 @@ namespace SwSopAddin.Services
             var fasteners = new List<ComponentGeometry>();
             foreach (var g in active)
             {
-                if (ClassifyRole(g, opt, asmVolume) == ExplodeRole.Fastener) fasteners.Add(g);
+                if (ClassifyRole(g, opt, asmVolume, diag) == ExplodeRole.Fastener) fasteners.Add(g);
                 else bodies.Add(g);
             }
 
-            // --- 主体件:向外发散 ---
+            // --- 主体件:以最大主体为基准，沿装配主轴展开 ---
+            // 主壳体/底座留在原位，其他主体件按相对位置投影到一个主轴上。这会保留
+            // 端盖-轴承-轴等组件的装配阅读关系，而不是把所有件沿对角线向外抛散。
+            ComponentGeometry anchor = FindLargestBody(bodies, center);
+            double[] bodyReferenceCenter = anchor != null ? anchor.Center : center;
             foreach (var b in bodies)
             {
+                if (opt.KeepLargestBodyCentered && ReferenceEquals(b, anchor)) continue;
                 result.Placements.Add(new ExplodePlacement
                 {
                     ComponentName = b.ComponentName,
                     Index = b.Index,
-                    Direction = DivergenceDirection(center, b.Center, opt),
-                    DistanceMeters = NormalizedDistance(b, center, diag, opt),
+                    Direction = opt.SnapBodyDirectionsToAssemblyAxes
+                        ? AxisAlignedDivergenceDirection(bodyReferenceCenter, b.Center, opt)
+                        : DivergenceDirection(bodyReferenceCenter, b.Center, opt),
+                    DistanceMeters = NormalizedDistance(b, bodyReferenceCenter, diag, opt),
                     Role = ExplodeRole.Body
                 });
             }
@@ -67,7 +74,7 @@ namespace SwSopAddin.Services
             {
                 if (grp.Members.Count < 2) continue;
                 grp.Id = groupId++;
-                AssignStackDistances(grp, opt, result.Placements);
+                AssignStackDistances(grp, opt, result.Placements, bodyReferenceCenter);
                 foreach (var m in grp.Members) stacked.Add(m);
             }
 
@@ -80,9 +87,14 @@ namespace SwSopAddin.Services
                 {
                     ComponentName = f.ComponentName,
                     Index = f.Index,
-                    Direction = RadialDirection(f, center, mainAxis, opt),
+                    // 默认沿零件自身轴向拆开，和螺钉/销/导柱的实际装配路径一致。
+                    // 径向爆炸仍可在配置中显式启用，用于确实需要围绕中心散开的场景。
+                    Direction = opt.UseRadialForIsolatedFasteners
+                        ? RadialDirection(f, bodyReferenceCenter, mainAxis, opt)
+                        : AxialOutwardDirection(f, bodyReferenceCenter),
                     DistanceMeters = radialDist,
-                    Role = ExplodeRole.Fastener
+                    Role = ExplodeRole.Fastener,
+                    UseRadialStep = opt.EnableRadialSteps && opt.UseRadialForIsolatedFasteners
                 });
             }
 
@@ -137,11 +149,35 @@ namespace SwSopAddin.Services
 
         // ===== 分类 =====
 
-        /// <summary>主体件 vs 紧固件。优先级:名字关键词 &gt; 长径比 &gt; 体积占比。</summary>
-        internal static ExplodeRole ClassifyRole(ComponentGeometry g, ExplodeOptions opt, double asmVolume)
+        /// <summary>
+        /// 主体件 vs 紧固件。优先依据可复用的几何标准：装配相对尺寸、薄板形态、
+        /// 杆件截面对称性及体积；名称只在用户显式启用时作为最后的辅助信号。
+        /// </summary>
+        internal static ExplodeRole ClassifyRole(ComponentGeometry g, ExplodeOptions opt, double asmVolume, double assemblyDiagonal = 0)
         {
             string lname = (g.BaseName ?? "").ToLowerInvariant();
-            if (opt.FastenerNameKeywords != null)
+            double[] dims = g.Dims.OrderBy(d => d).ToArray(); // 升序 [thin,mid,long]
+            double thin = dims[0];
+            double mid = Math.Max(dims[1], Vec3.Eps);
+            double longest = dims[2];
+
+            // 大到占据装配显著尺度的组件是主结构，即使它很薄或很长。
+            if (assemblyDiagonal > Vec3.Eps && longest / assemblyDiagonal >= opt.StructuralMinSizeFraction)
+                return ExplodeRole.Body;
+
+            // 薄而宽的件是板/盖/夹具，不是螺钉。此规则不依赖文件命名。
+            bool isPlanarPlate = thin / mid <= opt.PlateThicknessRatio && mid / Math.Max(longest, Vec3.Eps) >= opt.PlatePlanarRatio;
+            if (isPlanarPlate) return ExplodeRole.Body;
+
+            if (opt.UseNameHeuristics && opt.StructuralNameKeywords != null)
+            {
+                foreach (var kw in opt.StructuralNameKeywords)
+                {
+                    if (!string.IsNullOrEmpty(kw) && lname.Contains(kw.ToLowerInvariant()))
+                        return ExplodeRole.Body;
+                }
+            }
+            if (opt.UseNameHeuristics && opt.FastenerNameKeywords != null)
             {
                 foreach (var kw in opt.FastenerNameKeywords)
                 {
@@ -150,16 +186,16 @@ namespace SwSopAddin.Services
                 }
             }
 
-            double[] dims = g.Dims.OrderBy(d => d).ToArray(); // 升序 [min,mid,max]
-            double maxD = dims[2];
-            double minD = Math.Max(dims[0], Vec3.Eps);
-            double longRatio = maxD / minD;
+            double crossSectionSimilarity = thin / mid;
+            double longRatio = longest / mid;
             double volRatio = asmVolume > Vec3.Eps ? g.Volume / asmVolume : 1.0;
 
             if (volRatio < opt.FastenerVolumeFraction)
             {
-                if (longRatio >= opt.FastenerAspectRatio) return ExplodeRole.Fastener;     // 细长 → 螺栓
-                if (maxD < opt.FastenerMaxSizeMm / 1000.0) return ExplodeRole.Fastener;     // 小件 → 螺母/垫圈
+                // 杆/销/螺钉应有两条近似相等的截面边；仅仅又长又薄的板条不应误判。
+                if (crossSectionSimilarity >= opt.RodCrossSectionSimilarity && longRatio >= opt.FastenerAspectRatio)
+                    return ExplodeRole.Fastener;
+                if (longest < opt.FastenerMaxSizeMm / 1000.0) return ExplodeRole.Fastener;  // 小型螺母/垫圈
             }
             return ExplodeRole.Body;
         }
@@ -173,6 +209,43 @@ namespace SwSopAddin.Services
             if (n != null) return n;
             double[] fallback = Vec3.Normalize(opt.DefaultDivergeAxis ?? new double[] { 0, 0, 1 });
             return fallback ?? new double[] { 0, 0, 1 };
+        }
+
+        /// <summary>
+        /// 选取相对基准件偏移量最大的世界坐标轴，并保留正负号。工程图中的主要拆分
+        /// 通常沿装配的局部 X/Y/Z 方向；将方向吸附到轴能避免斜向、放射状的“拉伸”外观。
+        /// </summary>
+        internal static double[] AxisAlignedDivergenceDirection(double[] center, double[] centroid, ExplodeOptions opt)
+        {
+            double[] offset = Vec3.Sub(centroid, center);
+            int dominant = 0;
+            for (int i = 1; i < 3; i++)
+            {
+                if (Math.Abs(offset[i]) > Math.Abs(offset[dominant])) dominant = i;
+            }
+            if (Math.Abs(offset[dominant]) < Vec3.Eps)
+                return DivergenceDirection(center, centroid, opt);
+
+            double[] direction = AxisUnit(dominant);
+            if (offset[dominant] < 0) direction[dominant] = -1;
+            return direction;
+        }
+
+        /// <summary>沿单件自身主轴、朝远离主件的一侧移动，适用于未进入同轴堆叠的螺钉和销。</summary>
+        internal static double[] AxialOutwardDirection(ComponentGeometry component, double[] assemblyCenter)
+        {
+            double[] axis = PrimaryAxis(component);
+            double[] offset = Vec3.Sub(component.Center, assemblyCenter);
+            return Vec3.Dot(offset, axis) < 0 ? Vec3.Scale(axis, -1) : axis;
+        }
+
+        internal static ComponentGeometry FindLargestBody(IReadOnlyList<ComponentGeometry> bodies, double[] assemblyCenter)
+        {
+            if (bodies == null || bodies.Count == 0) return null;
+            return bodies
+                .OrderByDescending(b => b.Volume)
+                .ThenBy(b => Vec3.Distance(b.Center, assemblyCenter))
+                .First();
         }
 
         /// <summary>
@@ -272,12 +345,31 @@ namespace SwSopAddin.Services
             return groups;
         }
 
-        /// <summary>同轴堆叠沿轴投影排序后均匀等距排开:dist = spacing ×(i+1)。</summary>
+        /// <summary>兼容旧调用：同轴堆叠默认沿组轴正方向展开。</summary>
         internal static void AssignStackDistances(CoaxialGroup grp, ExplodeOptions opt, List<ExplodePlacement> outList)
         {
+            AssignStackDistances(grp, opt, outList, null);
+        }
+
+        /// <summary>
+        /// 同轴堆叠从装配中心向外展开。位于中心负侧的组沿负轴移动，并倒序处理，
+        /// 使端盖、轴承、垫圈等仍按从内到外的装配顺序排列。
+        /// </summary>
+        internal static void AssignStackDistances(CoaxialGroup grp, ExplodeOptions opt, List<ExplodePlacement> outList, double[] assemblyCenter)
+        {
             double spacing = opt.CoaxialSpacingMm / 1000.0;
+            double[] direction = grp.Axis;
+            if (assemblyCenter != null)
+            {
+                double[] groupCenter = new double[3];
+                foreach (var member in grp.Members) groupCenter = Vec3.Add(groupCenter, member.Center);
+                groupCenter = Vec3.Scale(groupCenter, 1.0 / grp.Members.Count);
+                if (Vec3.Dot(Vec3.Sub(groupCenter, assemblyCenter), grp.Axis) < 0)
+                    direction = Vec3.Scale(grp.Axis, -1);
+            }
+
             var ordered = grp.Members
-                .OrderBy(m => Vec3.Dot(Vec3.Sub(m.Center, grp.AxisPoint), grp.Axis))
+                .OrderBy(m => Vec3.Dot(Vec3.Sub(m.Center, grp.AxisPoint), direction))
                 .ToList();
             for (int i = 0; i < ordered.Count; i++)
             {
@@ -286,7 +378,7 @@ namespace SwSopAddin.Services
                 {
                     ComponentName = m.ComponentName,
                     Index = m.Index,
-                    Direction = grp.Axis,
+                    Direction = direction,
                     DistanceMeters = spacing * (i + 1),
                     Role = ExplodeRole.Fastener,
                     CoaxialGroupId = grp.Id,

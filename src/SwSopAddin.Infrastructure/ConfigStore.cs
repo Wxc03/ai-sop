@@ -88,7 +88,11 @@ namespace SwSopAddin.Infrastructure
         /// <summary>爆炸风格。默认 SmartHybrid;改 Legacy 秒回退 W6 旧行为。</summary>
         public ExplodeStyle Style { get; set; } = ExplodeStyle.SmartHybrid;
 
-        // --- 主体件发散 ---
+        // --- 主体件轴向展开 ---
+        /// <summary>保持最大主体件在装配中心，其他主体件围绕它展开。默认 true。</summary>
+        public bool KeepLargestBodyCentered { get; set; } = true;
+        /// <summary>主体件沿相对主件的 X/Y/Z 主轴展开，避免斜向散射。默认 true。</summary>
+        public bool SnapBodyDirectionsToAssemblyAxes { get; set; } = true;
         /// <summary>主体件基准爆炸距离 = 该系数 × 装配对角线。默认 0.35。</summary>
         public double BodyBaseDistanceFraction { get; set; } = 0.35;
         /// <summary>离心系数:离装配中心越远的件推得越远。默认 0.8。</summary>
@@ -103,10 +107,22 @@ namespace SwSopAddin.Infrastructure
         public double[] DefaultDivergeAxis { get; set; } = new double[] { 0, 0, 1 };
 
         // --- 紧固件分类 ---
-        /// <summary>文件名含这些关键词(不分大小写)判为紧固件。</summary>
+        /// <summary>文件名含这些关键词(不分大小写)可辅助判为紧固件；默认不启用名称判定。</summary>
         public string[] FastenerNameKeywords { get; set; } =
             new[] { "bolt", "screw", "nut", "washer", "pin", "pillar", "bush", "guide",
                 "螺栓", "螺钉", "螺母", "垫圈", "导柱", "导套", "gb" };
+        /// <summary>是否使用文件名作为分类辅助。默认 false，保证不同命名规范下的可复用性。</summary>
+        public bool UseNameHeuristics { get; set; } = false;
+        /// <summary>文件名含这些关键词时可辅助判为结构件；仅 UseNameHeuristics=true 时生效。</summary>
+        public string[] StructuralNameKeywords { get; set; } = new string[0];
+        /// <summary>最长尺寸占装配对角线超过此比例的组件固定判为结构件。默认 0.35。</summary>
+        public double StructuralMinSizeFraction { get; set; } = 0.35;
+        /// <summary>薄板厚度/短边比低于此值，且另两边接近时判为结构件。默认 0.45。</summary>
+        public double PlateThicknessRatio { get; set; } = 0.45;
+        /// <summary>薄板中边/长边比高于此值时视为平面板件。默认 0.45。</summary>
+        public double PlatePlanarRatio { get; set; } = 0.45;
+        /// <summary>细长杆件两条截面边的相似度下限。默认 0.65。</summary>
+        public double RodCrossSectionSimilarity { get; set; } = 0.65;
         /// <summary>长径比 ≥ 此值判为紧固件(细长件,如螺栓)。默认 3.0。</summary>
         public double FastenerAspectRatio { get; set; } = 3.0;
         /// <summary>体积占装配比 &lt; 此值才可能是紧固件。默认 0.02。</summary>
@@ -131,6 +147,8 @@ namespace SwSopAddin.Infrastructure
         /// 组件缺少有效轴或发散实体时自动回退到线性步骤。
         /// </summary>
         public bool EnableRadialSteps { get; set; } = true;
+        /// <summary>孤立紧固件使用真正的径向步骤。默认 false，优先沿自身装配轴拆开。</summary>
+        public bool UseRadialForIsolatedFasteners { get; set; } = false;
     }
 
     /// <summary>

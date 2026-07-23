@@ -502,7 +502,7 @@ namespace SwSopAddin.Services
                 }
 
                 string stepName;
-                bool useRadial = placement.Role == ExplodeRole.Fastener && placement.CoaxialGroupId < 0;
+                bool useRadial = placement.UseRadialStep && placement.Role == ExplodeRole.Fastener && placement.CoaxialGroupId < 0;
                 bool ok;
                 if (useRadial && applier is IRadialExplodeApplier radialApplier)
                 {

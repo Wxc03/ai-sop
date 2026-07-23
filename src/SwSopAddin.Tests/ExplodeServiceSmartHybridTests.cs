@@ -136,6 +136,7 @@ namespace SwSopAddin.Tests
             var plan = MakePlan("Nut");
             plan.Placements[0].Role = ExplodeRole.Fastener;
             plan.Placements[0].CoaxialGroupId = -1;
+            plan.Placements[0].UseRadialStep = true;
             var applier = new RecordingRadialExplodeApplier();
 
             ExplodeService.ApplyPlan(plan, applier, out int processed, out int failed);

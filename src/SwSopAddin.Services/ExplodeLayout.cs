@@ -95,6 +95,8 @@ namespace SwSopAddin.Services
         public int CoaxialGroupId { get; set; } = -1;
         /// <summary>在同轴堆叠里的顺序(0 起);非堆叠件为 0。</summary>
         public int StackOrder { get; set; }
+        /// <summary>孤立紧固件是否优先使用 SolidWorks 径向爆炸步骤。</summary>
+        public bool UseRadialStep { get; set; }
     }
 
     /// <summary>Plan 的完整输出。</summary>
